@@ -36,8 +36,8 @@ class SetTransformer(nn.Module):
             nn.Linear(dim_hidden, dim_output),
         )
 
-    def forward(self, X):
-        return self.dec(self.enc(X)).squeeze()
+    def forward(self, X, h):
+        return self.dec(self.enc(X)).squeeze(), h
 
 class PermEqui1_max(nn.Module):
     def __init__(self, in_dim, out_dim):
@@ -70,11 +70,11 @@ class DeepSet(nn.Module):
                 nn.Dropout(p=0.5),
                 nn.Linear(self.dim_hidden, self.dim_output))
 
-    def forward(self, x):
+    def forward(self, x, h):
         X = self.enc(x)
         X, _ = X.max(1)
         X = self.dec(X)
-        return X
+        return X, h
 
 class PermInvRNN(nn.Module):
     #def __init__(self, device, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256):
@@ -88,44 +88,49 @@ class PermInvRNN(nn.Module):
         self.rnn_type = rnn_type
         self.num_outputs = num_outputs
         self.dim_output = dim_output
+        # self.activation = nn.Tanh()
+        self.activation = nn.ReLU()
         self.enc = nn.Sequential(
                 PermEqui1_max(self.dim_input, self.dim_hidden),
-                #nn.Tanh(),
-                nn.ReLU(),
+                self.activation,
                 PermEqui1_max(self.dim_hidden, self.dim_hidden),
-                nn.ReLU(),
-                #nn.Tanh(),
-                #PermEqui1_max(self.dim_hidden, self.dim_hidden),
+                self.activation,
                 PermEqui1_max(self.dim_hidden, self.dim_rnn),
-                nn.ReLU())
-                #nn.Tanh())
+                self.activation)
         self.dec = nn.Sequential(
                 nn.Dropout(p=0.5),
-                #nn.Linear(self.dim_hidden, self.dim_hidden),
                 nn.Linear(self.dim_rnn, self.dim_hidden),
-                nn.ReLU(),
-                #nn.Tanh(),
+                self.activation,
                 nn.Dropout(p=0.5),
                 nn.Linear(self.dim_hidden, self.dim_output))
-        #self.rnn = nn.Sequential(
-        #        nn.Linear(self.dim_hidden, self.dim_rnn),
-        #        nn.GRU(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=0.5),
-        #        nn.Linear(self.dim_rnn, self.dim_hidden))
-        #self.rnn = nn.GRU(self.dim_hidden, self.dim_hidden, num_layers=2, batch_first=True, dropout=0.5)
-        #op = nn.Identity if self.dim_hidden == self.dim_rnn else nn.Linear
-        #self.pre_rnn = op(self.dim_hidden, self.dim_rnn)
-        #self.post_rnn = op(self.dim_rnn, self.dim_hidden)
-        if self.rnn_type == 'GRU':
-                self.rnn = nn.GRU(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
-        elif self.rnn_type == 'LSTM':
-                self.rnn = nn.LSTM(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
-        elif self.rnn_type == 'RNN':
-                self.rnn = nn.RNN(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
 
-                
-        #self.rnn = nn.GRU(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=0.5)
+        if self.rnn_type == 'GRU':
+            self.rnn = nn.GRU(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
+        elif self.rnn_type == 'LSTM':
+            self.rnn = nn.LSTM(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
+        elif self.rnn_type == 'RNN':
+            self.rnn = nn.RNN(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
+        else:
+            raise ValueError('Illegal rnn_type.')
+
+
+    def apply_rnn(self, input, states):
+        if self.rnn_type == 'LSTM':
+            output, (hn, cn) = self.rnn(input, states)
+            return output, (hn, cn)
+        else:
+            output, hn = self.rnn(input, states)
+            return output, hn
+
+
+    def forward(self, X, hidden=None):
+        X = self.enc(X)
+        X, hidden = self.apply_rnn(X, hidden)
+        X = X[:, -1, :]
+        X = self.dec(X)
+        return X, hidden
     
-    def forward(self, X):
+    def _forward(self, X):
         X = self.enc(X)
         #X = self.pre_rnn(X)
         X_no_grad = X[:,:-self.bptt_steps,:]
@@ -229,8 +234,8 @@ if not os.path.exists(log_dir_base):
 curr_exp = strftime("%Y-%m-%d_%H:%M", gmtime())
 
 log_dir = os.path.join(os.path.join(log_dir_base, curr_exp))
-os.makedirs(log_dir)
 log_file = os.path.join(log_dir, 'log.txt')
+
 #model_path = log_dir + "/model"
 #writer = SummaryWriter(log_dir)
 log_dict = {
@@ -244,7 +249,8 @@ log_dict = {
 
 generator = ModelFetcher(
 #    "../dataset/ModelNet40_cloud.h5",
-    "/specific/netapp5_2/gamir/edocohen/TCRNN/data/PointClouds/ModelNet40_cloud_from_edo.h5",
+    # "/specific/netapp5_2/gamir/edocohen/TCRNN/data/PointClouds/ModelNet40_cloud_from_edo.h5",
+    "ModelNet40_cloud_from_edo.h5",
     args.batch_size,
     down_sample=int(10000 / args.num_pts),
     do_standardize=True,
@@ -274,28 +280,35 @@ optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 #optimizer = torch.optim.Adagrad(model.parameters(), lr=args.learning_rate)
 criterion = nn.CrossEntropyLoss()
 #model = nn.DataParallel(model)
-model = model.cuda()
+model = model.to(device)
 best_val_epoch = 0
 best_val_acc = 0.0
 for epoch in range(args.train_epochs):
-    model.train()
     losses, total, correct = [], 0, 0
     for imgs, _, lbls in generator.train_data():
-        imgs = torch.Tensor(imgs).cuda()
-        lbls = torch.Tensor(lbls).long().cuda()
-        preds = model(imgs)
-
-        loss = criterion(preds, lbls)
-        if args.model == 'reg':
-            reg_loss = model.regularize(imgs)
+        states = None
+        imgs = torch.Tensor(imgs).to(device)
+        lbls = torch.Tensor(lbls).long().to(device)
+        for i, imgs_ in enumerate(imgs.split(model.bptt_steps, dim=1)):
+            total_loss = 0.0
+            optimizer.zero_grad()
+            model.train()
+            if states is not None:
+                # LSTM returns a tuple.
+                if args.rnn_type == 'LSTM':
+                    states[0] = states[0].detach()
+                    states[1] = states[1].detach()
+                else:    
+                    states = states.detach()
+            
+            preds, states = model(imgs_, states)
+            reg_loss = model.regularize(imgs_) if args.model == 'reg' else 0.0
+            
+            loss = criterion(preds, lbls)
             total_loss = loss + reg_loss
-            #total_loss = loss
-        else:
-            total_loss = loss
-
-        optimizer.zero_grad()
-        total_loss.backward()
-        optimizer.step()
+            
+            total_loss.backward()
+            optimizer.step()
 
         losses.append(loss.item())
         total += lbls.shape[0]
@@ -315,9 +328,13 @@ for epoch in range(args.train_epochs):
         for imgs, _, lbls in generator.val_data():
             imgs = torch.Tensor(imgs).cuda()
             lbls = torch.Tensor(lbls).long().cuda()
-            preds = model(imgs)
+            if args.model == 'reg':
+                reg_loss = model.regularize(imgs)
+                preds, states = model(imgs, states)
+            else:
+                preds = model(imgs)
+            
             loss = criterion(preds, lbls)
-
             losses.append(loss.item())
             total += lbls.shape[0]
             correct += (preds.argmax(dim=1) == lbls).sum().item()
@@ -329,6 +346,8 @@ for epoch in range(args.train_epochs):
         print(f"Epoch {epoch}: val loss {avg_loss:.3f} val acc {avg_acc:.3f}")
         if avg_acc > best_val_acc:
             print(f"Saving best model. Best val accuracy: {avg_acc:.3f}. Epoch {epoch}")
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
             best_val_acc = avg_acc
             best_val_epoch = epoch
             #save_model(model, os.path.join(log_dir, curr_exp + '_best_val.pth'))
