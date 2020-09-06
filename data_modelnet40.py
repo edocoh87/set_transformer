@@ -34,8 +34,16 @@ def standardize(x):
     return (z - mean) / std
 
 
+def shuffle_data(data, labels):
+    rng_state = np.random.get_state()
+    np.random.shuffle(data)
+    np.random.set_state(rng_state)
+    np.random.shuffle(labels)
+
+
 class ModelFetcher(object):
-    def __init__(self, fname, batch_size, down_sample=10, do_standardize=True, do_augmentation=False):
+    #def __init__(self, fname, batch_size, down_sample=10, do_standardize=True, do_augmentation=False):
+    def __init__(self, fname, batch_size, val_ratio=0.1, down_sample=10, do_standardize=True, do_augmentation=False):
 
         self.fname = fname
         self.batch_size = batch_size
@@ -49,8 +57,16 @@ class ModelFetcher(object):
 
         self.num_classes = np.max(self._train_label) + 1
 
-        self.num_train_batches = len(self._train_data) // self.batch_size
-        self.num_test_batches = len(self._test_data) // self.batch_size
+        self.val_size = int(len(self._train_data) * val_ratio)
+        
+        shuffle_data(self._train_data, self._train_label)
+        self._val_data = self._train_data[:self.val_size]
+        self._val_label = self._train_label[:self.val_size]
+        self._train_data = self._train_data[self.val_size:]
+        self._train_label = self._train_label[self.val_size:]	
+
+        #self.num_train_batches = len(self._train_data) // self.batch_size
+        #self.num_test_batches = len(self._test_data) // self.batch_size
 
         self.prep1 = standardize if do_standardize else lambda x: x
         self.prep2 = (lambda x: augment(self.prep1(x))) if do_augmentation else self.prep1
@@ -62,6 +78,7 @@ class ModelFetcher(object):
         self.perm = np.random.permutation(self._train_data.shape[1])[::self.down_sample]
 
     def train_data(self):
+        np.random.shuffle(self.perm)
         rng_state = np.random.get_state()
         np.random.shuffle(self._train_data)
         np.random.set_state(rng_state)
@@ -80,14 +97,36 @@ class ModelFetcher(object):
             end += self.batch_size
 
     def test_data(self):
-        return self.next_test_batch()
+        return self.next_test_batch(mode='test')
 
-    def next_test_batch(self):
+    def val_data(self):
+        return self.next_test_batch(mode='val')
+
+    def next_test_batch(self, mode):
+        if mode == 'test':
+            _data = self._test_data
+            _label = self._test_label
+        elif mode == 'val':
+            _data = self._val_data
+            _label = self._val_label
+
         start = 0
         end = self.batch_size
-        N = len(self._test_data)
-        batch_card = (self._train_data.shape[1] // self.down_sample) * np.ones(self.batch_size, dtype=np.int32)
+        # N = len(self._test_data)
+        N = len(_data)
+        # batch_card = (self._train_data.shape[1] // self.down_sample) * np.ones(self.batch_size, dtype=np.int32)
+        batch_card = (_data.shape[1] // self.down_sample) * np.ones(self.batch_size, dtype=np.int32)
         while end < N:
-            yield self.prep1(self._test_data[start:end, 1::self.down_sample]), batch_card, self._test_label[start:end]
+            yield self.prep1(_data[start:end, 1::self.down_sample]), batch_card, _label[start:end]
             start = end
             end += self.batch_size
+    
+    #def next_test_batch(self):
+    #    start = 0
+    #    end = self.batch_size
+    #    N = len(self._test_data)
+    #    batch_card = (self._train_data.shape[1] // self.down_sample) * np.ones(self.batch_size, dtype=np.int32)
+    #    while end < N:
+    #        yield self.prep1(self._test_data[start:end, 1::self.down_sample]), batch_card, self._test_label[start:end]
+    #        start = end
+    #        end += self.batch_size
