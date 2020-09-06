@@ -177,8 +177,9 @@ class PermInvRNN(nn.Module):
         #X_b_with_grad = X_b[:,-self.bptt_steps:,:]
         #_output_a, _hidden_a = self.rnn(X_a_no_grad) 
         #_output_b, _hidden_b = self.rnn(X_b_no_grad) 
-        _output_a, _hidden_a = self.rnn(X_a)
-        _output_b, _hidden_b = self.rnn(X_b)
+        output_a, hidden_a = self.rnn(X_a)
+        output_b, hidden_b = self.rnn(X_b)
+
         
         # if self.rnn_type == 'LSTM':
         #     _hidden_a = tuple([v.detach() for v in _hidden_a])
