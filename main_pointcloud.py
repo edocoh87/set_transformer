@@ -180,17 +180,17 @@ class PermInvRNN(nn.Module):
         _output_a, _hidden_a = self.rnn(X_a)
         _output_b, _hidden_b = self.rnn(X_b)
         
-        if self.rnn_type == 'LSTM':
-            _hidden_a = tuple([v.detach() for v in _hidden_a])
-            _hidden_b = tuple([v.detach() for v in _hidden_b])
-        else:
-            _hidden_a = _hidden_a.detach()
-            _hidden_b = _hidden_b.detach()
+        # if self.rnn_type == 'LSTM':
+        #     _hidden_a = tuple([v.detach() for v in _hidden_a])
+        #     _hidden_b = tuple([v.detach() for v in _hidden_b])
+        # else:
+        #     _hidden_a = _hidden_a.detach()
+        #     _hidden_b = _hidden_b.detach()
         
-        _output_a.detach()
-        _output_b.detach()
-        output_a, hidden_a = self.rnn(X_a, _hidden_a)
-        output_b, hidden_b = self.rnn(X_b, _hidden_b)
+        # _output_a.detach()
+        # _output_b.detach()
+        # output_a, hidden_a = self.rnn(X_a, _hidden_a)
+        # output_b, hidden_b = self.rnn(X_b, _hidden_b)
         
         #output_a[:,:-50,:].detach()
         #output_b[:,:-50,:].detach()
@@ -329,7 +329,7 @@ for epoch in range(args.train_epochs):
             imgs = torch.Tensor(imgs).cuda()
             lbls = torch.Tensor(lbls).long().cuda()
             if args.model == 'reg':
-                reg_loss = model.regularize(imgs)
+                # reg_loss = model.regularize(imgs)
                 preds, states = model(imgs, states)
             else:
                 preds = model(imgs)
