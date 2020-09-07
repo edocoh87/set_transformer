@@ -36,7 +36,7 @@ class SetTransformer(nn.Module):
             nn.Linear(dim_hidden, dim_output),
         )
 
-    def forward(self, X, h):
+    def forward(self, X, h=None):
         return self.dec(self.enc(X)).squeeze(), h
 
 class PermEqui1_max(nn.Module):
@@ -70,7 +70,7 @@ class DeepSet(nn.Module):
                 nn.Dropout(p=0.5),
                 nn.Linear(self.dim_hidden, self.dim_output))
 
-    def forward(self, x, h):
+    def forward(self, x, h=None):
         X = self.enc(x)
         X, _ = X.max(1)
         X = self.dec(X)
