@@ -130,29 +130,29 @@ class PermInvRNN(nn.Module):
         X = self.dec(X)
         return X, hidden
     
-    def _forward(self, X):
-        X = self.enc(X)
-        #X = self.pre_rnn(X)
-        X_no_grad = X[:,:-self.bptt_steps,:]
-        X_with_grad = X[:,-self.bptt_steps:,:]
-        _X, _hidden = self.rnn(X_no_grad)
-        #print(_hidden.shape)
-        #print(_X.shape)
-        #exit()
-        #for i in range(X.shape[1] - self.ptt_step):
-        #    X[:,i, :].detach()
-        #for i in range(_hidden.shape[1]):
-        if self.rnn_type == 'LSTM':
-            _hidden = tuple([v.detach() for v in _hidden])
-        else:
-            _hidden = _hidden.detach()
-        X.detach()
+    # def _forward(self, X):
+    #     X = self.enc(X)
+    #     #X = self.pre_rnn(X)
+    #     X_no_grad = X[:,:-self.bptt_steps,:]
+    #     X_with_grad = X[:,-self.bptt_steps:,:]
+    #     _X, _hidden = self.rnn(X_no_grad)
+    #     #print(_hidden.shape)
+    #     #print(_X.shape)
+    #     #exit()
+    #     #for i in range(X.shape[1] - self.ptt_step):
+    #     #    X[:,i, :].detach()
+    #     #for i in range(_hidden.shape[1]):
+    #     if self.rnn_type == 'LSTM':
+    #         _hidden = tuple([v.detach() for v in _hidden])
+    #     else:
+    #         _hidden = _hidden.detach()
+    #     X.detach()
         
-        X, _ = self.rnn(X_with_grad, _hidden)
-        X = X[:, -1, :]
-        #X = self.post_rnn(X)
-        X = self.dec(X)
-        return X
+    #     X, _ = self.rnn(X_with_grad, _hidden)
+    #     X = X[:, -1, :]
+    #     #X = self.post_rnn(X)
+    #     X = self.dec(X)
+    #     return X
 
     def regularize(self, X):
         X = self.enc(X)
