@@ -209,6 +209,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--num_pts", type=int, default=1000)
 parser.add_argument("--learning_rate", type=float, default=1e-3)
 parser.add_argument("--batch_size", type=int, default=64)
+parser.add_argument("--bptt_steps", type=int, default=100)
 parser.add_argument("--dim", type=int, default=256)
 parser.add_argument("--dim_rnn", type=int, default=256)
 parser.add_argument("--n_heads", type=int, default=4)
@@ -264,12 +265,14 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 #model = DeepSet(dim_hidden=args.dim)
 if args.model == 'reg':
     model = PermInvRNN(device=device, dim_hidden=args.dim, dim_rnn=args.dim_rnn, rnn_type=args.rnn_type)
-elif args.model == 'deepset':
-    model = DeepSet(dim_hidden=args.dim)
-elif args.model == 'set':
-    model = SetTransformer(dim_hidden=args.dim, num_heads=args.n_heads, num_inds=args.n_anc)
 else:
-    raise ValueError('invalid model.')
+    args.bptt_steps = args.num_pts # truncated backprop is relevant only to the RNN...
+    if args.model == 'deepset':
+        model = DeepSet(dim_hidden=args.dim)
+    elif args.model == 'set':
+        model = SetTransformer(dim_hidden=args.dim, num_heads=args.n_heads, num_inds=args.n_anc)
+    else:
+        raise ValueError('invalid model.')
 
 def save_model(model, fname):
     torch.save(model, fname)
@@ -290,7 +293,7 @@ for epoch in range(args.train_epochs):
         states = None
         imgs = torch.Tensor(imgs).to(device)
         lbls = torch.Tensor(lbls).long().to(device)
-        for i, imgs_ in enumerate(imgs.split(model.bptt_steps, dim=1)):
+        for i, imgs_ in enumerate(imgs.split(args.bptt_steps, dim=1)):
             total_loss = 0.0
             optimizer.zero_grad()
             model.train()
