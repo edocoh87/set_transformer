@@ -327,10 +327,9 @@ for epoch in range(args.train_epochs):
         losses, total, correct = [], 0, 0
         #for imgs, _, lbls in generator.test_data():
         for imgs, _, lbls in generator.val_data():
-            states = None
             imgs = torch.Tensor(imgs).cuda()
             lbls = torch.Tensor(lbls).long().cuda()
-            preds, states = model(imgs, states)
+            preds, states = model(imgs)
             # if args.model == 'reg':
             #     # reg_loss = model.regularize(imgs)
             #     preds, states = model(imgs, states)
@@ -368,7 +367,7 @@ losses, total, correct = [], 0, 0
 for imgs, _, lbls in generator.test_data():
     imgs = torch.Tensor(imgs).cuda()
     lbls = torch.Tensor(lbls).long().cuda()
-    preds = model(imgs)
+    preds, states = model(imgs)
     loss = criterion(preds, lbls)
 
     losses.append(loss.item())
