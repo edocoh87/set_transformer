@@ -251,8 +251,8 @@ log_dict = {
 
 generator = ModelFetcher(
 #    "../dataset/ModelNet40_cloud.h5",
-    # "/specific/netapp5_2/gamir/edocohen/TCRNN/data/PointClouds/ModelNet40_cloud_from_edo.h5",
-    "ModelNet40_cloud_from_edo.h5",
+    "/specific/netapp5_2/gamir/edocohen/TCRNN/data/PointClouds/ModelNet40_cloud_from_edo.h5",
+    #"ModelNet40_cloud_from_edo.h5",
     args.batch_size,
     down_sample=int(10000 / args.num_pts),
     do_standardize=True,
