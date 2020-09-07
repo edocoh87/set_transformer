@@ -205,6 +205,18 @@ class PermInvRNN(nn.Module):
         diff = (output_a - output_b).pow(2).sum() / X.shape[0]
         return diff
 
+def clip_grad(model, max_norm):
+    total_norm = 0
+    for p in model.parameters():
+        param_norm = p.grad.data.norm(2)
+        total_norm += param_norm ** 2
+    total_norm = total_norm ** (0.5)
+    clip_coef = max_norm / (total_norm + 1e-6)
+    if clip_coef < 1:
+        for p in model.parameters():
+            p.grad.data.mul_(clip_coef)
+    return total_norm
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--num_pts", type=int, default=1000)
 parser.add_argument("--learning_rate", type=float, default=1e-3)
@@ -312,6 +324,7 @@ for epoch in range(args.train_epochs):
             total_loss = loss + reg_loss
             
             total_loss.backward()
+            clip_grad(model, 5)
             optimizer.step()
 
         losses.append(loss.item())
