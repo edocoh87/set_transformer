@@ -217,6 +217,14 @@ def clip_grad(model, max_norm):
             p.grad.data.mul_(clip_coef)
     return total_norm
 
+def _detach(var):
+    if type(var) is tuple:
+        var[0] = var[0].detach()
+        var[1] = var[1].detach()
+    else:
+        var = var.detach()
+    return var
+        
 parser = argparse.ArgumentParser()
 parser.add_argument("--num_pts", type=int, default=1000)
 parser.add_argument("--learning_rate", type=float, default=1e-3)
@@ -229,6 +237,7 @@ parser.add_argument("--n_anc", type=int, default=16)
 parser.add_argument("--train_epochs", type=int, default=2000)
 parser.add_argument("--model", type=str, default="reg")
 parser.add_argument("--rnn_type", type=str, default="GRU")
+parser.add_argument("--optimizer", type=str, default="Adam")
 
 
 args = parser.parse_args()
@@ -238,8 +247,12 @@ strftime("%Y-%m-%d_%H:%M", gmtime())
 #args.exp_name = f"pts-{args.num_pts}_dim-{args.dim}_dimrnn-{args.dim_rnn}_lr-{args.learning_rate}_bs-{args.batch_size}_rnn_type-{args.rnn_type}_epochs-{args.train_epochs}"
 model_name = f"model-{args.model}"
 if args.model == 'reg':
-    model_name += f"_rnn_type-{args.rnn_type}_dimrnn-{args.dim_rnn}"
-args.exp_name = f"pts-{args.num_pts}_dim-{args.dim}_lr-{args.learning_rate}_bs-{args.batch_size}_{model_name}_epochs-{args.train_epochs}"
+    model_name += f"_rnn_type-{args.rnn_type}_dimrnn-{args.dim_rnn}_bpttsteps-{args.bptt_steps}"
+else:
+    # truncated backprop is relevant only to the RNN...
+    args.bptt_steps = args.num_pts
+
+args.exp_name = f"pts-{args.num_pts}_dim-{args.dim}_lr-{args.learning_rate}_opt-{args.optimizer}_bs-{args.batch_size}_{model_name}_epochs-{args.train_epochs}"
 
 log_dir_base = "result/" + args.exp_name
 if not os.path.exists(log_dir_base):
@@ -271,20 +284,19 @@ generator = ModelFetcher(
     do_augmentation=(args.num_pts == 5000),
 )
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 #model = SetTransformer(dim_hidden=args.dim, num_heads=args.n_heads, num_inds=args.n_anc)
 #model = DeepSet(dim_hidden=args.dim)
 if args.model == 'reg':
     model = PermInvRNN(device=device, dim_hidden=args.dim, dim_rnn=args.dim_rnn, rnn_type=args.rnn_type)
+elif args.model == 'deepset':
+    model = DeepSet(dim_hidden=args.dim)
+elif args.model == 'set':
+    model = SetTransformer(dim_hidden=args.dim, num_heads=args.n_heads, num_inds=args.n_anc)
 else:
-    args.bptt_steps = args.num_pts # truncated backprop is relevant only to the RNN...
-    if args.model == 'deepset':
-        model = DeepSet(dim_hidden=args.dim)
-    elif args.model == 'set':
-        model = SetTransformer(dim_hidden=args.dim, num_heads=args.n_heads, num_inds=args.n_anc)
-    else:
-        raise ValueError('invalid model.')
+    raise ValueError('invalid model.')
 
 def save_model(model, fname):
     torch.save(model, fname)
@@ -292,8 +304,13 @@ def save_model(model, fname):
 def load_model(fname):
     return torch.load(fname)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-#optimizer = torch.optim.Adagrad(model.parameters(), lr=args.learning_rate)
+if args.optimizer == 'Adam':
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=1e-7, eps=1e-3)
+elif args.optimizer == 'Adamax':
+    optimizer = torch.optim.Adamax(model.parameters(), lr=args.learning_rate, weight_decay=1e-7, eps=1e-3)
+else:
+    raise ValueError('Illegal optimizer value')
+scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=list(range(400, args.train_epochs, 400)), gamma=0.1)
 criterion = nn.CrossEntropyLoss()
 #model = nn.DataParallel(model)
 model = model.to(device)
@@ -310,12 +327,13 @@ for epoch in range(args.train_epochs):
             optimizer.zero_grad()
             model.train()
             if states is not None:
+                states = _detach(states)
                 # LSTM returns a tuple.
-                if args.rnn_type == 'LSTM':
-                    states[0] = states[0].detach()
-                    states[1] = states[1].detach()
-                else:    
-                    states = states.detach()
+                #if args.rnn_type == 'LSTM':
+                #    states[0] = states[0].detach()
+                #    states[1] = states[1].detach()
+                #else:    
+                #    states = states.detach()
             
             preds, states = model(imgs_, states)
             reg_loss = model.regularize(imgs_) if args.model == 'reg' else 0.0
@@ -337,6 +355,7 @@ for epoch in range(args.train_epochs):
     #writer.add_scalar("train_loss", avg_loss, epoch)
     #writer.add_scalar("train_acc", avg_acc, epoch)
     print(f"Epoch {epoch}: train loss {avg_loss:.3f} train acc {avg_acc:.3f}")
+    scheduler.step()
 
     if epoch % 5 == 0:
         model.eval()
