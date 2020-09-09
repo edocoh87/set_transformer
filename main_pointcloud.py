@@ -88,8 +88,8 @@ class PermInvRNN(nn.Module):
         self.rnn_type = rnn_type
         self.num_outputs = num_outputs
         self.dim_output = dim_output
-        # self.activation = nn.Tanh()
-        self.activation = nn.ReLU()
+        self.activation = nn.Tanh()
+        #self.activation = nn.ReLU()
         self.enc = nn.Sequential(
                 PermEqui1_max(self.dim_input, self.dim_hidden),
                 self.activation,
@@ -348,8 +348,8 @@ def eval(log_dir, args, generator):
 if __name__=='__main__':
     args = get_parser()
     generator = ModelFetcher(
-        # "/specific/netapp5_2/gamir/edocohen/TCRNN/data/PointClouds/ModelNet40_cloud_from_edo.h5",
-        "ModelNet40_cloud_from_edo.h5",
+        "/specific/netapp5_2/gamir/edocohen/TCRNN/data/PointClouds/ModelNet40_cloud_from_edo.h5",
+        #"ModelNet40_cloud_from_edo.h5",
         args.batch_size,
         down_sample=int(10000 / args.num_pts),
         do_standardize=True,
