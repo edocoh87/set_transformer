@@ -79,17 +79,21 @@ class DeepSet(nn.Module):
 
 class PermInvRNN(nn.Module):
     #def __init__(self, device, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256):
-    def __init__(self, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256, dim_rnn=256, rnn_type='GRU', bptt_steps=100, rnn_dropout=0.85):
+    def __init__(self, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256, dim_rnn=256, rnn_type='GRU', activation='tanh', rnn_dropout=0.85):
         super(PermInvRNN, self).__init__()
         self.dim_input = dim_input
         self.dim_hidden = dim_hidden
         self.dim_rnn = dim_rnn
-        self.bptt_steps = bptt_steps
         self.rnn_type = rnn_type
         self.num_outputs = num_outputs
         self.dim_output = dim_output
-        self.activation = nn.Tanh()
-        #self.activation = nn.ReLU()
+        if activation == 'tanh':
+            self.activation = nn.Tanh()
+        elif activation == 'relu':
+            self.activation = nn.ReLU()
+        else:
+            raise ValueError('Invalid activation.')
+
         self.enc = nn.Sequential(
                 PermEqui1_max(self.dim_input, self.dim_hidden),
                 self.activation,
@@ -175,7 +179,7 @@ def _detach(var):
 
 def load_model(args):
         if args.model == 'reg':
-            model = PermInvRNN(dim_hidden=args.dim, dim_rnn=args.dim_rnn, rnn_type=args.rnn_type)
+            model = PermInvRNN(dim_hidden=args.dim, dim_rnn=args.dim_rnn, rnn_type=args.rnn_type, activation=args.rnn_activation, rnn_dropout=args.rnn_dropout)
         elif args.model == 'deepset':
             model = DeepSet(dim_hidden=args.dim)
         elif args.model == 'set':
@@ -197,6 +201,8 @@ def get_parser():
     parser.add_argument("--train_epochs", type=int, default=2000)
     parser.add_argument("--model", type=str, default="reg")
     parser.add_argument("--rnn_type", type=str, default="GRU")
+    parser.add_argument("--rnn_activation", type=str, default="relu")
+    parser.add_argument("--rnn_dropout", type=float, default=0.85)
     parser.add_argument("--optimizer", type=str, default="Adam")
     parser.add_argument("--log_dir", type=str, default=None)
 
@@ -206,7 +212,7 @@ def get_parser():
 def train(args, generator):
     model_name = f"model-{args.model}"
     if args.model == 'reg':
-        model_name += f"_rnn_type-{args.rnn_type}_dimrnn-{args.dim_rnn}_bpttsteps-{args.bptt_steps}"
+        model_name += f"_rnn_type-{args.rnn_type}_dimrnn-{args.dim_rnn}_bpttsteps-{args.bptt_steps}_rnn_dropout-{args.rnn_dropout}_rnn_activation-{args.rnn_activation}"
     else:
         # truncated backprop is relevant only to the RNN...
         args.bptt_steps = args.num_pts
@@ -228,8 +234,8 @@ def train(args, generator):
         'train_acc': [],
         'val_losses': [],
         'val_acc': [],
-        'test_loss': [],
-        'test_acc': [],
+        # 'test_loss': [],
+        # 'test_acc': [],
     }
         
     model = load_model(args)
@@ -348,8 +354,8 @@ def eval(log_dir, args, generator):
 if __name__=='__main__':
     args = get_parser()
     generator = ModelFetcher(
-        "/specific/netapp5_2/gamir/edocohen/TCRNN/data/PointClouds/ModelNet40_cloud_from_edo.h5",
-        #"ModelNet40_cloud_from_edo.h5",
+        # "/specific/netapp5_2/gamir/edocohen/TCRNN/data/PointClouds/ModelNet40_cloud_from_edo.h5",
+        "ModelNet40_cloud_from_edo.h5",
         args.batch_size,
         down_sample=int(10000 / args.num_pts),
         do_standardize=True,
