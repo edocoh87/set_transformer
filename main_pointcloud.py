@@ -1,5 +1,6 @@
 import argparse
 import os
+from copy import deepcopy
 
 import numpy as np
 import torch
@@ -250,8 +251,10 @@ def train(args, generator):
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=list(range(400, args.train_epochs, 400)), gamma=0.1)
     criterion = nn.CrossEntropyLoss()
     model = cudify(model)
-    best_val_epoch = 0
+    best_val_acc_epoch = 0
     best_val_acc = 0.0
+    best_val_loss_epoch = 0
+    best_val_loss = np.inf
     for epoch in range(args.train_epochs):
         losses, total, correct = [], 0, 0
         for imgs, _, lbls in generator.train_data():
@@ -301,30 +304,42 @@ def train(args, generator):
             log_dict['val_losses'].append(avg_loss)
             log_dict['val_acc'].append(avg_acc)
             print(f"Epoch {epoch}: val loss {avg_loss:.3f} val acc {avg_acc:.3f}")
-            if avg_acc > best_val_acc:
-                print(f"Saving best model. Best val accuracy: {avg_acc:.3f}. Epoch {epoch}")
+            if avg_acc > best_val_acc or avg_loss < best_val_loss:
                 if not os.path.exists(log_dir):
                     os.makedirs(log_dir)
                     with open(config_file, 'w') as f:
                         json.dump(args.__dict__, f, indent=2)
-                best_val_acc = avg_acc
-                best_val_epoch = epoch
+
+                if avg_acc > best_val_acc:
+                    print(f"Saving best model. Best val accuracy: {avg_acc:.3f}. Epoch {epoch}")
+                    best_val_acc = avg_acc
+                    best_val_acc_epoch = epoch
+                    torch.save(model.state_dict(), os.path.join(log_dir, 'best_val_acc.pth'))
+                    log_dict['best_val_acc_epoch'] = epoch
+                
+                if avg_loss < best_val_loss:
+                    print(f"Saving best model. Best val loss: {avg_loss:.3f}. Epoch {epoch}")
+                    best_val_loss = avg_loss
+                    best_val_loss_epoch = epoch
+                    torch.save(model.state_dict(), os.path.join(log_dir, 'best_val_loss.pth'))
+                    log_dict['best_val_loss_epoch'] = epoch
+                
                 #save_model(model, os.path.join(log_dir, curr_exp + '_best_val.pth'))
                 #save_model(model, os.path.join(log_dir, 'best_val.pth')
-                torch.save(model.state_dict(), os.path.join(log_dir, 'best_val.pth'))
-                log_dict['best_epoch'] = epoch
+                
     with open(os.path.join(log_dir, 'log_file.txt'), 'w') as f:
         json.dump(log_dict, f)
     return log_dict['log_dir']
 
 
-def eval(log_dir, args, generator):
+def eval(log_dir, args, generator, model_name):
     print("Loading model from {}".format(log_dir))
     with open(os.path.join(log_dir, 'config.txt'), 'r') as f:
         args.__dict__ = json.load(f)
 
     model = load_model(args)
-    model.load_state_dict(torch.load(os.path.join(log_dir, 'best_val.pth')))
+    model.load_state_dict(torch.load(os.path.join(log_dir, model_name)))
+    # model.load_state_dict(torch.load(os.path.join(log_dir, 'best_val.pth')))
     criterion = nn.CrossEntropyLoss()
 
     model = cudify(model)
@@ -341,15 +356,13 @@ def eval(log_dir, args, generator):
         correct += (preds.argmax(dim=1) == lbls).sum().item()
     avg_loss, avg_acc = np.mean(losses), correct / total
     print(f"Test loss {avg_loss:.3f} test acc {avg_acc:.3f}")
-    curr_time = strftime("%Y-%m-%d_%H:%M", gmtime())
     log_dict = {
         'batch_size': generator.batch_size,
         'pts': int(10000 / generator.down_sample),
         'loss': avg_loss,
         'acc': avg_acc,
     }
-    with open(os.path.join(log_dir, '{}_eval.txt'.format(curr_time)), 'w') as f:
-        json.dump(log_dict, f)
+    return log_dict
 
 if __name__=='__main__':
     args = get_parser()
@@ -368,5 +381,13 @@ if __name__=='__main__':
         if log_dir is None:
             raise ValueError('Must provide a log_dir if not training.')
 
-    eval(log_dir, args, generator)
+    log_dict = {}
+    _log_dict = eval(log_dir, args, generator, 'best_val_acc.pth')
+    log_dict['best_val_acc.pth'] = deepcopy(_log_dict)
+    _log_dict = eval(log_dir, args, generator, 'best_val_loss.pth')
+    log_dict['best_val_loss.pth'] = deepcopy(_log_dict)
+    curr_time = strftime("%Y-%m-%d_%H:%M", gmtime())
+    print(log_dict)
+    with open(os.path.join(log_dir, '{}_eval.txt'.format(curr_time)), 'w') as f:
+        json.dump(log_dict, f)
 
