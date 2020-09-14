@@ -193,6 +193,7 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_pts", type=int, default=1000)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--reg_coef", type=float, default=1.0)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--bptt_steps", type=int, default=100)
     parser.add_argument("--dim", type=int, default=256)
@@ -213,7 +214,7 @@ def get_parser():
 def train(args, generator):
     model_name = f"model-{args.model}"
     if args.model == 'reg':
-        model_name += f"_rnn_type-{args.rnn_type}_dimrnn-{args.dim_rnn}_bpttsteps-{args.bptt_steps}_rnn_dropout-{args.rnn_dropout}_rnn_activation-{args.rnn_activation}"
+        model_name += f"_rnn_type-{args.rnn_type}_dimrnn-{args.dim_rnn}_bpttsteps-{args.bptt_steps}_rnn_dropout-{args.rnn_dropout}_rnn_activation-{args.rnn_activation}_reg_coef-{args.reg_coef}"
     else:
         # truncated backprop is relevant only to the RNN...
         args.bptt_steps = args.num_pts
@@ -272,7 +273,7 @@ def train(args, generator):
                 reg_loss = model.regularize(imgs_) if args.model == 'reg' else 0.0
                 
                 loss = criterion(preds, lbls)
-                total_loss = loss + reg_loss
+                total_loss = loss + args.reg_coef * reg_loss
                 
                 total_loss.backward()
                 clip_grad(model, 5)
