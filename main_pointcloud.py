@@ -121,15 +121,19 @@ class PermInvRNN(nn.Module):
 
         self.rnn = rnn_obj(self.dim_rnn, self.dim_rnn, num_layers=self.num_rnn_layers,
                                                     batch_first=True, dropout=rnn_dropout)
+        self.rnn_dropout = nn.Dropout(p=rnn_dropout)
 
 
     def apply_rnn(self, input, states):
         if self.rnn_type == 'LSTM':
             output, (hn, cn) = self.rnn(input, states)
-            return output, (hn, cn)
+            # return output, (hn, cn)
+            next_state = (hn, cn)
         else:
             output, hn = self.rnn(input, states)
-            return output, hn
+            next_state = hn
+        
+        return self.rnn_dropout(output), next_state
 
 
     def forward(self, X, hidden=None):
