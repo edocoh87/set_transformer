@@ -80,11 +80,12 @@ class DeepSet(nn.Module):
 
 class PermInvRNN(nn.Module):
     #def __init__(self, device, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256):
-    def __init__(self, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256, dim_rnn=256, rnn_type='GRU', activation='tanh', rnn_dropout=0.85):
+    def __init__(self, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256, dim_rnn=256, num_rnn_layers=2, rnn_type='GRU', activation='tanh', rnn_dropout=0.85):
         super(PermInvRNN, self).__init__()
         self.dim_input = dim_input
         self.dim_hidden = dim_hidden
         self.dim_rnn = dim_rnn
+        self.num_rnn_layers = num_rnn_layers
         self.rnn_type = rnn_type
         self.num_outputs = num_outputs
         self.dim_output = dim_output
@@ -110,13 +111,16 @@ class PermInvRNN(nn.Module):
                 nn.Linear(self.dim_hidden, self.dim_output))
 
         if self.rnn_type == 'GRU':
-            self.rnn = nn.GRU(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
+            rnn_obj = nn.GRU
         elif self.rnn_type == 'LSTM':
-            self.rnn = nn.LSTM(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
+            rnn_obj = nn.LSTM
         elif self.rnn_type == 'RNN':
-            self.rnn = nn.RNN(self.dim_rnn, self.dim_rnn, num_layers=2, batch_first=True, dropout=rnn_dropout)
+            rnn_obj = nn.RNN
         else:
             raise ValueError('Illegal rnn_type.')
+
+        self.rnn = rnn_obj(self.dim_rnn, self.dim_rnn, num_layers=self.num_rnn_layers,
+                                                    batch_first=True, dropout=rnn_dropout)
 
 
     def apply_rnn(self, input, states):
@@ -180,11 +184,22 @@ def _detach(var):
 
 def load_model(args):
         if args.model == 'reg':
-            model = PermInvRNN(dim_hidden=args.dim, dim_rnn=args.dim_rnn, rnn_type=args.rnn_type, activation=args.rnn_activation, rnn_dropout=args.rnn_dropout)
+            model = PermInvRNN(
+                        dim_hidden=args.dim,
+                        dim_rnn=args.dim_rnn, 
+                        num_rnn_layers=args.num_rnn_layers,
+                        rnn_type=args.rnn_type,
+                        activation=args.rnn_activation,
+                        rnn_dropout=args.rnn_dropout
+            )
         elif args.model == 'deepset':
             model = DeepSet(dim_hidden=args.dim)
         elif args.model == 'set':
-            model = SetTransformer(dim_hidden=args.dim, num_heads=args.n_heads, num_inds=args.n_anc)
+            model = SetTransformer(
+                dim_hidden=args.dim,
+                num_heads=args.n_heads,
+                num_inds=args.n_anc
+            )
         else:
             raise ValueError('invalid model.')
         return model
@@ -198,6 +213,7 @@ def get_parser():
     parser.add_argument("--bptt_steps", type=int, default=100)
     parser.add_argument("--dim", type=int, default=256)
     parser.add_argument("--dim_rnn", type=int, default=256)
+    parser.add_argument("--num_rnn_layers", type=int, default=2)
     parser.add_argument("--n_heads", type=int, default=4)
     parser.add_argument("--n_anc", type=int, default=16)
     parser.add_argument("--train_epochs", type=int, default=2000)
@@ -214,12 +230,28 @@ def get_parser():
 def train(args, generator):
     model_name = f"model-{args.model}"
     if args.model == 'reg':
-        model_name += f"_rnn_type-{args.rnn_type}_dimrnn-{args.dim_rnn}_bpttsteps-{args.bptt_steps}_rnn_dropout-{args.rnn_dropout}_rnn_activation-{args.rnn_activation}_reg_coef-{args.reg_coef}"
+        model_name += (
+            f"_rnn_type-{args.rnn_type}"
+            f"_dimrnn-{args.dim_rnn}"
+            f"_rnnlayers-{args.num_rnn_layers}"
+            f"_bpttsteps-{args.bptt_steps}"
+            f"_rnn_dropout-{args.rnn_dropout}"
+            f"_rnn_activation-{args.rnn_activation}"
+            f"_reg_coef-{args.reg_coef}"
+        )
     else:
         # truncated backprop is relevant only to the RNN...
         args.bptt_steps = args.num_pts
 
-    args.exp_name = f"pts-{args.num_pts}_dim-{args.dim}_lr-{args.learning_rate}_opt-{args.optimizer}_bs-{args.batch_size}_{model_name}_epochs-{args.train_epochs}"
+    args.exp_name = (
+            f"pts-{args.num_pts}"
+            f"_dim-{args.dim}"
+            f"_lr-{args.learning_rate}"
+            f"_opt-{args.optimizer}"
+            f"_bs-{args.batch_size}"
+            f"_{model_name}"
+            f"_epochs-{args.train_epochs}"
+        )
 
     log_dir_base = "result/" + args.exp_name
     if not os.path.exists(log_dir_base):
@@ -243,13 +275,17 @@ def train(args, generator):
     model = load_model(args)
 
     if args.optimizer == 'Adam':
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=1e-7, eps=1e-3)
+        optimizer = torch.optim.Adam(model.parameters(),
+                            lr=args.learning_rate, weight_decay=1e-7, eps=1e-3)
     elif args.optimizer == 'Adamax':
-        optimizer = torch.optim.Adamax(model.parameters(), lr=args.learning_rate, weight_decay=1e-7, eps=1e-3)
+        optimizer = torch.optim.Adamax(model.parameters(),
+                            lr=args.learning_rate, weight_decay=1e-7, eps=1e-3)
     else:
         raise ValueError('Illegal optimizer value')
 
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=list(range(400, args.train_epochs, 400)), gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                milestones=list(range(400, args.train_epochs, 400)), gamma=0.1)
+
     criterion = nn.CrossEntropyLoss()
     model = cudify(model)
     best_val_acc_epoch = 0
