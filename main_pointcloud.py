@@ -291,6 +291,9 @@ def train(args, generator):
     elif args.optimizer == 'RMSProp':
         optimizer = torch.optim.RMSProp(model.parameters(),
                             lr=args.learning_rate, weight_decay=args.weight_decay, eps=args.eps)
+    elif args.optimizer == 'Adagrad':
+        optimizer = torch.optim.Adagrad(model.parameters(),
+                            lr=args.learning_rate, weight_decay=args.weight_decay, eps=args.eps)
     else:
         raise ValueError('Illegal optimizer value')
 
