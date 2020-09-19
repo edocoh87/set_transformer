@@ -225,6 +225,8 @@ def get_parser():
     parser.add_argument("--rnn_type", type=str, default="GRU")
     parser.add_argument("--rnn_activation", type=str, default="relu")
     parser.add_argument("--rnn_dropout", type=float, default=0.85)
+    parser.add_argument("--weight_decay", type=float, default=1e-7)
+    parser.add_argument("--eps", type=float, default=1e-3)
     parser.add_argument("--optimizer", type=str, default="Adam")
     parser.add_argument("--log_dir", type=str, default=None)
 
@@ -252,6 +254,8 @@ def train(args, generator):
             f"_dim-{args.dim}"
             f"_lr-{args.learning_rate}"
             f"_opt-{args.optimizer}"
+            f"_weight_decay-{args.weight_decay}"
+            f"_eps-{args.eps}"
             f"_bs-{args.batch_size}"
             f"_{model_name}"
             f"_epochs-{args.train_epochs}"
@@ -280,10 +284,13 @@ def train(args, generator):
 
     if args.optimizer == 'Adam':
         optimizer = torch.optim.Adam(model.parameters(),
-                            lr=args.learning_rate, weight_decay=1e-7, eps=1e-3)
+                            lr=args.learning_rate, weight_decay=args.weight_decay, eps=args.eps)
     elif args.optimizer == 'Adamax':
         optimizer = torch.optim.Adamax(model.parameters(),
-                            lr=args.learning_rate, weight_decay=1e-7, eps=1e-3)
+                            lr=args.learning_rate, weight_decay=args.weight_decay, eps=args.eps)
+    elif args.optimizer == 'RMSProp':
+        optimizer = torch.optim.RMSProp(model.parameters(),
+                            lr=args.learning_rate, weight_decay=args.weight_decay, eps=args.eps)
     else:
         raise ValueError('Illegal optimizer value')
 
