@@ -123,6 +123,19 @@ class PermInvRNN(nn.Module):
                                                     batch_first=True, dropout=rnn_dropout)
         self.rnn_dropout = nn.Dropout(p=rnn_dropout)
 
+        def hook_fn(module, grad_input, grad_output):
+            # print('grad_input: {}'.format(grad_input))
+            # print(grad_input[0])
+            # print(grad_input[0].shape)
+            # print(type(grad_output))
+            # print(grad_output)
+            # print(grad_output[0].shape)
+            # print('grad_output: {}'.format(grad_output))
+            return grad_input
+
+        self.rnn.register_backward_hook(hook_fn)
+        # self.force_diagonal_matrices()
+
 
     def apply_rnn(self, input, states):
         if self.rnn_type == 'LSTM':
@@ -135,6 +148,24 @@ class PermInvRNN(nn.Module):
         
         return self.rnn_dropout(output), next_state
 
+    
+
+    def force_diagonal_matrices_hook(self):
+        
+            # s = torch.split(grad_input, self.dim_rnn)
+            # print('Forcing {} to consist of digonal matrices.'.format(name))
+            # print('Hallelujah')
+            # for _s in s:
+                # if _s.shape[0] == _s.shape[1]:
+                #     _s.
+            # exit()
+            # return (grad_input, grad_output)
+
+        for name, param in self.rnn.named_parameters():
+            if 'weight' in name:
+                param.register_backward_hook(hook_fn)
+                        
+            # exit()
 
     def forward(self, X, hidden=None):
         X = self.enc(X)
@@ -320,12 +351,16 @@ def train(args, generator):
                     states = _detach(states)
                 
                 preds, states = model(imgs_, states)
-                reg_loss = model.regularize(imgs_) if args.model == 'reg' else 0.0
-                
                 loss = criterion(preds, lbls)
-                total_loss = loss + args.reg_coef * reg_loss
+                loss.backward()
                 
-                total_loss.backward()
+                if args.model == 'reg':
+                    reg_loss = model.regularize(imgs_)
+                    reg_loss.backward()
+                
+                # total_loss = loss + args.reg_coef * reg_loss
+                
+                # total_loss.backward()
                 clip_grad(model, 5)
                 optimizer.step()
 
