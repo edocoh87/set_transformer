@@ -136,7 +136,7 @@ class PermInvRNN(nn.Module):
         if self.sparse_rnn:
             inputs = torch.split(input, 1, dim=-1)
             if states is not None:
-                states = torch.split(input, 1, dim=-1)
+                states = torch.split(states, 1, dim=-1)
             else:
                 states = [None for i in range(len(inputs))]
 
@@ -152,7 +152,7 @@ class PermInvRNN(nn.Module):
                 # return output, (hn, cn)
                 next_state = (hn, cn)
             else:
-                output, hn = self.rnn(input, states)
+                output, c = self.rnn(input, states)
                 next_state = hn
             
             return self.rnn_dropout(output), next_state
