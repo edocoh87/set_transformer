@@ -113,26 +113,32 @@ class PermInvRNN(nn.Module):
 
         if self.rnn_type == 'GRU':
             rnn_obj = nn.GRU
+            rnn_obj_cell = nn.GRUCell
         elif self.rnn_type == 'LSTM':
             rnn_obj = nn.LSTM
+            rnn_obj_cell = nn.LSTMCell
         elif self.rnn_type == 'RNN':
             rnn_obj = nn.RNN
+            rnn_obj_cell = nn.RNNCell
         else:
             raise ValueError('Illegal rnn_type.')
 
-        if self.sparse_rnn:
-            print('sparse rnn')
-            self.rnn = [rnn_obj(1, 1, num_layers=self.num_rnn_layers, batch_first=True, dropout=rnn_dropout) for i in range(self.dim_rnn)]
-        else:
-            print('non sparse rnn')
-            self.rnn = rnn_obj(self.dim_rnn, self.dim_rnn, num_layers=self.num_rnn_layers,
-                                                        batch_first=True, dropout=rnn_dropout)
 
+        # if self.sparse_rnn:
+        #     print('sparse rnn')
+        #     self.rnn = [rnn_obj(1, 1, num_layers=self.num_rnn_layers, batch_first=True, dropout=rnn_dropout) for i in range(self.dim_rnn)]
+        # else:
+        #     print('non sparse rnn')
+        #     self.rnn = rnn_obj(self.dim_rnn, self.dim_rnn, num_layers=self.num_rnn_layers,
+        #                                                 batch_first=True, dropout=rnn_dropout)
+
+        self.rnn_obj_cell = rnn_obj_cell(self.dim_rnn, self.dim_rnn)
         self.rnn_dropout = nn.Dropout(p=rnn_dropout)
 
 
 
-    def apply_rnn(self, input, states=None):
+    def apply_rnn_old(self, input, states=None):
+        # X = X.permute(1,0,2)
         if self.sparse_rnn:
             inputs = torch.split(input, 1, dim=-1)
             if states is not None:
@@ -152,15 +158,38 @@ class PermInvRNN(nn.Module):
                 # return output, (hn, cn)
                 next_state = (hn, cn)
             else:
-                output, c = self.rnn(input, states)
+                output, hn = self.rnn(input, states)
                 next_state = hn
             
             return self.rnn_dropout(output), next_state
 
 
+    def apply_rnn(self, input, states=None):
+        if self.sparse_rnn:
+            shapes = self.rnn_obj_cell.weight_ih.shape
+            # each cell type has differently shaped weight matrices.
+            repeats = shapes[0] // shapes[1]
+            t = torch.eye(shapes[1])
+            t2 = t.repeat(repeats, 1)
+            with torch.no_grad():
+                self.rnn_obj_cell.weight_ih = torch.nn.Parameter(torch.mul(self.rnn_obj_cell.weight_ih, t2))
+                self.rnn_obj_cell.weight_hh = torch.nn.Parameter(torch.mul(self.rnn_obj_cell.weight_hh, t2))
+        
+        X = input.permute(1,0,2)
+        outputs = []
+        for i in range(len(X)):
+            if self.rnn_type == 'LSTM':
+                hx, cx = self.rnn_obj_cell(cudify(X[i]), states)
+                outputs.append(hx)
+                states = (hx, cx)
+            else:
+                hx = self.rnn_obj_cell(cudify(X[i]), states)
+                outputs.append(hx)
+                states = hx
+        return self.rnn_dropout(torch.stack(outputs)).permute(1,0,2), states
+
     def forward(self, X, hidden=None):
         X = self.enc(X)
-        # X, hidden = self.apply_rnn(X)
         X, hidden = self.apply_rnn(X, hidden)
         X = X[:, -1, :]
         X = self.dec(X)
@@ -205,11 +234,9 @@ def clip_grad(model, max_norm):
 
 def _detach(var):
     if type(var) is tuple:
-        var[0] = var[0].detach()
-        var[1] = var[1].detach()
+        return var[0].detach(), var[1].detach()
     else:
-        var = var.detach()
-    return var
+        return var.detach()
 
 def load_model(args):
         if args.model == 'reg':
