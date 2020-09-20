@@ -80,13 +80,14 @@ class DeepSet(nn.Module):
 
 class PermInvRNN(nn.Module):
     #def __init__(self, device, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256):
-    def __init__(self, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256, dim_rnn=256, num_rnn_layers=2, rnn_type='GRU', activation='tanh', rnn_dropout=0.85):
+    def __init__(self, dim_input=3, num_outputs=1, dim_output=40, dim_hidden=256, dim_rnn=256, num_rnn_layers=2, rnn_type='GRU', sparse_rnn=False, activation='tanh', rnn_dropout=0.85):
         super(PermInvRNN, self).__init__()
         self.dim_input = dim_input
         self.dim_hidden = dim_hidden
         self.dim_rnn = dim_rnn
         self.num_rnn_layers = num_rnn_layers
-        self.rnn_type = rnn_type
+        self.rnn_type = rnn_type        
+        self.sparse_rnn = sparse_rnn
         self.num_outputs = num_outputs
         self.dim_output = dim_output
         if activation == 'tanh':
@@ -119,56 +120,47 @@ class PermInvRNN(nn.Module):
         else:
             raise ValueError('Illegal rnn_type.')
 
-        self.rnn = rnn_obj(self.dim_rnn, self.dim_rnn, num_layers=self.num_rnn_layers,
-                                                    batch_first=True, dropout=rnn_dropout)
+        if self.sparse_rnn:
+            print('sparse rnn')
+            self.rnn = [rnn_obj(1, 1, num_layers=self.num_rnn_layers, batch_first=True, dropout=rnn_dropout) for i in range(self.dim_rnn)]
+        else:
+            print('non sparse rnn')
+            self.rnn = rnn_obj(self.dim_rnn, self.dim_rnn, num_layers=self.num_rnn_layers,
+                                                        batch_first=True, dropout=rnn_dropout)
+
         self.rnn_dropout = nn.Dropout(p=rnn_dropout)
 
-        def hook_fn(module, grad_input, grad_output):
-            # print('grad_input: {}'.format(grad_input))
-            # print(grad_input[0])
-            # print(grad_input[0].shape)
-            # print(type(grad_output))
-            # print(grad_output)
-            # print(grad_output[0].shape)
-            # print('grad_output: {}'.format(grad_output))
-            return grad_input
-
-        self.rnn.register_backward_hook(hook_fn)
-        # self.force_diagonal_matrices()
 
 
-    def apply_rnn(self, input, states):
-        if self.rnn_type == 'LSTM':
-            output, (hn, cn) = self.rnn(input, states)
-            # return output, (hn, cn)
-            next_state = (hn, cn)
+    def apply_rnn(self, input, states=None):
+        if self.sparse_rnn:
+            inputs = torch.split(input, 1, dim=-1)
+            if states is not None:
+                states = torch.split(input, 1, dim=-1)
+            else:
+                states = [None for i in range(len(inputs))]
+
+            rnn_output_arr = [self.rnn[i](curr_input, curr_state) for i, (curr_input, curr_state) in enumerate(zip(inputs, states))]
+            output_arr = [_[0] for _ in rnn_output_arr]
+            next_state_arr = [_[1] for _ in rnn_output_arr]
+            output = torch.cat(output_arr, dim=-1)
+            next_state = torch.cat(next_state_arr, dim=-1)
+            return output, next_state
         else:
-            output, hn = self.rnn(input, states)
-            next_state = hn
-        
-        return self.rnn_dropout(output), next_state
+            if self.rnn_type == 'LSTM':
+                output, (hn, cn) = self.rnn(input, states)
+                # return output, (hn, cn)
+                next_state = (hn, cn)
+            else:
+                output, hn = self.rnn(input, states)
+                next_state = hn
+            
+            return self.rnn_dropout(output), next_state
 
-    
-
-    def force_diagonal_matrices_hook(self):
-        
-            # s = torch.split(grad_input, self.dim_rnn)
-            # print('Forcing {} to consist of digonal matrices.'.format(name))
-            # print('Hallelujah')
-            # for _s in s:
-                # if _s.shape[0] == _s.shape[1]:
-                #     _s.
-            # exit()
-            # return (grad_input, grad_output)
-
-        for name, param in self.rnn.named_parameters():
-            if 'weight' in name:
-                param.register_backward_hook(hook_fn)
-                        
-            # exit()
 
     def forward(self, X, hidden=None):
         X = self.enc(X)
+        # X, hidden = self.apply_rnn(X)
         X, hidden = self.apply_rnn(X, hidden)
         X = X[:, -1, :]
         X = self.dec(X)
@@ -184,8 +176,10 @@ class PermInvRNN(nn.Module):
 
         X_a = cudify(torch.cat((X_prefix, X_suffix_a), dim=1))
         X_b = cudify(torch.cat((X_prefix, X_suffix_b), dim=1))
-        output_a, hidden_a = self.rnn(X_a)
-        output_b, hidden_b = self.rnn(X_b)
+        output_a, hidden_a = self.apply_rnn(X_a)
+        output_b, hidden_b = self.apply_rnn(X_b)
+        # output_a, hidden_a = self.rnn(X_a)
+        # output_b, hidden_b = self.rnn(X_b)
 
         output_a = output_a[:, -1, :]
         output_b = output_b[:, -1, :]
@@ -224,6 +218,7 @@ def load_model(args):
                         dim_rnn=args.dim_rnn, 
                         num_rnn_layers=args.num_rnn_layers,
                         rnn_type=args.rnn_type,
+                        sparse_rnn=(args.rnn_structure == 'sparse'),
                         activation=args.rnn_activation,
                         rnn_dropout=args.rnn_dropout
             )
@@ -254,6 +249,8 @@ def get_parser():
     parser.add_argument("--train_epochs", type=int, default=2000)
     parser.add_argument("--model", type=str, default="reg")
     parser.add_argument("--rnn_type", type=str, default="GRU")
+    parser.add_argument("--rnn_structure", type=str, default="regular")
+    # parser.add_argument("--sparse_rnn", type=str, default=False)
     parser.add_argument("--rnn_activation", type=str, default="relu")
     parser.add_argument("--rnn_dropout", type=float, default=0.85)
     parser.add_argument("--weight_decay", type=float, default=1e-7)
@@ -261,6 +258,7 @@ def get_parser():
     parser.add_argument("--optimizer", type=str, default="Adam")
     parser.add_argument("--log_dir", type=str, default=None)
 
+    parser.set_defaults(sparse_rnn=False)
     args = parser.parse_args()
     return args
 
@@ -269,6 +267,7 @@ def train(args, generator):
     if args.model == 'reg':
         model_name += (
             f"_rnn_type-{args.rnn_type}"
+            f"_rnn_sttructure-{args.rnn_structure}"
             f"_dimrnn-{args.dim_rnn}"
             f"_rnnlayers-{args.num_rnn_layers}"
             f"_bpttsteps-{args.bptt_steps}"
